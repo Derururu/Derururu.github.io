@@ -1,2 +1,2 @@
 # Derururu.github.io
-About me
+Check it out at https://derururu.github.io/
