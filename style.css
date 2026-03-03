@@ -403,6 +403,7 @@ footer {
 .warp-hero {
     position: relative;
     height: 200vh; /* Extra scroll room for the warp effect */
+    padding: 0;
 }
 
 .warp-content {
