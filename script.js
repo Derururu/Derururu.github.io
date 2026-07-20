@@ -32,7 +32,20 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('scroll', handleWarpScroll, { passive: true });
     handleWarpScroll(); // Initial call
 
-    // 2. Intersection Observer for Fade-In Effects
+    // 2. Jiggle Effect on Hero Image Click
+    const heroImage = document.querySelector('.hero-image');
+    if (heroImage) {
+        heroImage.addEventListener('click', () => {
+            heroImage.classList.remove('jiggling');
+            void heroImage.offsetWidth; // force reflow to restart animation
+            heroImage.classList.add('jiggling');
+        });
+        heroImage.addEventListener('animationend', () => {
+            heroImage.classList.remove('jiggling');
+        });
+    }
+
+    // 3. Intersection Observer for Fade-In Effects
     const observerOptions = {
         root: null,
         rootMargin: '0px',
