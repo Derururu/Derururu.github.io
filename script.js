@@ -60,7 +60,7 @@ for (let col = 0; col < bell.width; col++) {
 }
 shell.putImageData(surface, 0, 0);
 
-function swimmer(x, y, size, angle, stroke, opacity) {
+function swimmer(x, y, size, angle, stroke, opacity, turn = 0) {
     const phase = stroke % 1;
     const squeeze = phase < .26 ? phase / .26 : (1 - phase) / .74;
     const pulse = .5 - .5 * cos(PI * squeeze);
@@ -100,7 +100,8 @@ function swimmer(x, y, size, angle, stroke, opacity) {
             const depth = row / length;
             const sway = depth * (9 * sin(row * .076 - stroke * .98 + .55 * sin(strand)) +
                 7 * sin(row * .044 - stroke * .64 + longitude));
-            const center = root * (1 - .27 * depth) + sway + depth * 7 * sin(stroke * .46 - 1);
+            const center = root * (1 - .27 * depth) + sway + depth * 7 * sin(stroke * .46 - 1)
+                + turn * row * depth;
             const py = row + (broad ? 0 : 2.8 * sin(longitude));
             const fold = broad ? (1 - depth * .9) * (1.5 + 1.35 * sin(.35 * row + longitude - stroke)) : 0;
             if (row === 0) ink.moveTo(center - fold, py);
@@ -152,10 +153,17 @@ function draw(time) {
         swimmer(width * (px + .035 * sin(drift)), height * (py + .045 * cos(drift)), size * scale,
             lean + .24 * sin(drift), stroke * (.65 + scale) + px * 4, .48 + scale);
     }
-    const path = travel * .51;
-    swimmer(width * ((portrait ? .51 : .58) + (portrait ? .065 : .115) * sin(path)),
-        height * ((portrait ? .37 : .34) + .055 * cos(path * 1.6)) - size * 2 * sin(phase * PI) ** 4,
-        size, (portrait ? .13 : .63) + .19 * cos(path), stroke, 1);
+    const path = travel * tau / 8 - .35;
+    const radiusX = width * (portrait ? .23 : .32);
+    const radiusY = height * .29;
+    const x = width / 2 + radiusX * sin(path);
+    const y = height / 2 + radiusY * (-cos(path) + .16 * sin(2 * path));
+
+    // The bell follows the tangent; the tips still carry the previous heading into a turn.
+    const heading = t => Math.atan2(radiusX * cos(t), -radiusY * (sin(t) + .32 * cos(2 * t)));
+    const angle = heading(path);
+    const turn = .85 * sin(angle - heading(path - .55));
+    swimmer(x, y, size, angle, stroke, 1, turn);
 
     // Use luminance to pick a glyph, then transfer the field's color through the glyph mask.
     const pixels = ink.getImageData(0, 0, cols, rows).data;
