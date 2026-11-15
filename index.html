@@ -11,29 +11,20 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="noise-overlay"></div>
+    <canvas id="ocean" aria-hidden="true"></canvas>
+    <main>
+        <section class="hero">
+            <h1>Hello, I'm <em>Jason.</em></h1>
+            <button id="motion" type="button" hidden>Pause motion</button>
+        </section>
 
-    <!-- Hero with warp scroll effect -->
-    <section class="warp-hero">
-        <div class="warp-content">
-            <div class="image-container">
-                <img src="featured-image.png" alt="Featured Image" class="hero-image">
-            </div>
-            <p class="greeting large-greeting">Hello, I'm Jason.</p>
-        </div>
-    </section>
-
-    <!-- Content Section -->
-    <section class="content-section fade-in-section">
-        <div class="content-wrapper">
+        <section class="content-section">
             <h2 class="content-headline">Gurt:</h2>
-            <p class="content-body">Yo, I need a job.</p>            
-        </div>
-    </section>
-
-    <!-- Footer -->
+            <p class="content-body">Yo, I need a job.</p>
+        </section>
+    </main>
     <footer>
-        <div class="container footer-content">
+        <div class="footer-content">
             <p class="copyright">&copy; 2026 Jason Zhong. All rights reserved.</p>
             <div class="social-links">
                 <a href="https://github.com/Derururu" class="social-link" target="_blank">GitHub</a>
