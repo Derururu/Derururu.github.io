@@ -2,7 +2,7 @@ const ocean = document.querySelector('#ocean');
 const ctx = ocean.getContext('2d');
 const motion = document.querySelector('#motion');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-const { sin, cos, sqrt, exp, PI } = Math;
+const { sin, cos, sqrt, PI } = Math;
 const tau = 2 * PI;
 const strokeSeconds = 2;
 // Bell, crown stripes, central arm.
@@ -28,23 +28,34 @@ function drift(time) {
     return 5 * sin(time * .56) + 1.7 * sin(time * .93 - .7);
 }
 
+// Zero velocity and acceleration at both ends of a contraction or recovery.
+function ease(t) {
+    return t * t * t * (10 + t * (-15 + 6 * t));
+}
+
+function bellPulse(stroke) {
+    const phase = stroke - Math.floor(stroke);
+    return ease(phase < .325 ? phase / .325 : (1 - phase) / .675);
+}
+
 function draw(time) {
     const stroke = time / strokeSeconds;
     const cycle = Math.floor(stroke);
     const phase = stroke - cycle;
-    const squeeze = phase < .325 ? phase / .325 : (1 - phase) / .675;
-    const pulse = .5 - .5 * cos(PI * squeeze);
+    const pulse = bellPulse(stroke);
+    const rimPulse = bellPulse(stroke - .055);
+    const glide = .35 * pulse + .65 * bellPulse(stroke - .10);
     const palette = palettes[cycle % palettes.length];
     const previous = palettes[(cycle + palettes.length - 1) % palettes.length];
     const tilt = .17 * sin(time * .61 - .4);
-    const radius = 22 - 6 * pulse;
+    const radius = 22 - 6 * rimPulse;
     const capHeight = 12 + 2.3 * pulse;
     const center = drift(time);
     // The recording opens above the crown, then reveals the hanging tentacles.
     const reveal = reducedMotion.matches ? 1 : Math.min(1, time / 2.8);
-    const sideView = reveal * reveal * (3 - 2 * reveal);
+    const sideView = ease(reveal);
     const cx = width / 2 + center * cell;
-    const cy = height / 2 - (10.6 * sideView + pulse * 2.5) * line;
+    const cy = height / 2 - (10.6 * sideView + glide * 2.5) * line;
     ctx.clearRect(0, 0, width, height);
     ctx.font = `${cell * 1.47}px ui-monospace, monospace`;
     ctx.textAlign = 'center';
@@ -76,13 +87,13 @@ function draw(time) {
     ctx.globalAlpha = sideView;
     for (let row = 0; sideView > 0 && row <= tailLength; row++) {
         const depth = row / tailLength;
-        const arrival = Math.max(0, Math.min(1, (phase - depth * .77) / .13));
-        const wave = exp(-(((phase - depth * .77 - .055) / .085) ** 2));
+        const arrival = ease(Math.max(0, Math.min(1, (phase - depth * .77) / .13)));
+        const wave = sin(PI * arrival) ** 2;
         const threadHue = mixHue(previous[0], palette[0], arrival);
         const coreHue = mixHue(previous[2], palette[2], arrival);
         const lag = drift(time - 2.4 * depth) - center;
         const trail = lag * 1.65 + depth * 2.2 * sin(time * .67 - row * .13);
-        const delayedPulse = .5 + .5 * cos(tau * (phase - depth * .48 - .325));
+        const delayedPulse = bellPulse(stroke - .055 - depth * .36);
         for (let strand = 0; strand < 16; strand++) {
             const theta = tau * strand / 16 + .09;
             const tip = 30 + 9 * noise(strand, 4);
@@ -90,55 +101,70 @@ function draw(time) {
             const root = radius * .95 * cos(theta);
             const fan = .80 + .2 * cos(row * .15 - time * .9 + theta);
             const bend = depth * (4.7 * sin(row * .22 - time * .91 + theta) + 3.4 * sin(theta));
-            const radiusAtDepth = radius + depth * 6 * (pulse - delayedPulse);
+            const radiusAtDepth = 22 - 6 * delayedPulse;
             const x = radiusAtDepth * .95 * cos(theta) * (1 - depth + depth * fan) + trail + bend;
             const slope = row ? x - lastX[strand] : 0;
             lastX[strand] = x;
             const y = row * sideView + rimY(root) + 2 * sin(theta) - depth * 2.5 * delayedPulse;
             ctx.fillStyle = `hsl(${threadHue} ${22 + wave * 49}% ${48 + 17 * sin(theta) + 22 * wave - depth * 8}%)`;
-            ctx.fillText(slope > .23 ? '\\' : slope < -.23 ? '/' : '|', Math.round(x) * cell, Math.round(y) * line);
+            const slant = ease(Math.max(0, Math.min(1, (Math.abs(slope) - .12) / .36)));
+            if (slant < 1) {
+                ctx.globalAlpha = sideView * (1 - slant);
+                ctx.fillText('|', x * cell, y * line);
+            }
+            if (slant > 0) {
+                ctx.globalAlpha = sideView * slant;
+                ctx.fillText(slope > 0 ? '\\' : '/', x * cell, y * line);
+            }
         }
 
         if (row > 29) continue;
+        ctx.globalAlpha = sideView;
         const armDepth = row / 30;
         const mid = trail * .65 + 1.3 * sin(row * .22 - time * .7);
-        const half = (5.4 - 3.9 * armDepth) * (1 + .17 * cos(row * .36 - time));
-        for (let x = Math.ceil(mid - half); x <= mid + half; x++) {
-            const edge = Math.abs(x - mid) / half;
-            const grain = noise(x, row);
-            const fold = .5 + .5 * cos(x * .8 + row * .22 - time * .7);
-            const chars = glyphs[Math.min(5, Math.floor(1.3 + 2.5 * fold + 1.5 * grain))];
+        const restHalf = 5.4 - 3.9 * armDepth;
+        const foldWidth = 1 + .17 * cos(row * .36 - time);
+        for (let col = -Math.floor(restHalf); col <= restHalf; col++) {
+            const edge = Math.abs(col) > restHalf - 1;
+            const grain = noise(col, row);
+            const fold = .5 + .5 * cos(col * .8 + row * .22 - time * .7);
+            const chars = glyphs[Math.floor(1.3 + 2.2 * (.5 + .5 * cos(col * .8 + row * .22)) + 1.5 * grain)];
             ctx.fillStyle = `hsl(${coreHue} ${58 + wave * 24}% ${38 + 28 * fold + 14 * grain + 12 * wave}%)`;
-            ctx.fillText(edge > .84 ? '|/\\'[Math.floor(grain * 3)] : chars[Math.floor(grain * chars.length)],
-                x * cell, Math.round(row * sideView) * line);
+            ctx.fillText(edge ? '|/\\'[Math.floor(grain * 3)] : chars[Math.floor(grain * chars.length)],
+                (mid + col * foldWidth) * cell, row * sideView * line);
         }
     }
 
     ctx.globalAlpha = 1;
-    const change = cycle === 0 ? 1 : Math.min(1, phase / .13);
+    const change = cycle === 0 ? 1 : ease(Math.min(1, phase / .13));
     const baseHue = mixHue(previous[0], palette[0], change);
     const stripeHue = mixHue(previous[1], palette[1], change);
     const yaw = .40 * sin(time * .48);
     ctx.shadowBlur = cell * .22;
-    for (let x = Math.ceil(-radius); x <= radius; x++) {
-        const u = x / radius;
+    // Keep each glyph attached to the same patch of bell as that patch stretches.
+    for (let col = -22; col <= 22; col++) {
+        const u = col / 22;
         const arc = sqrt(Math.max(0, 1 - u * u));
-        const top = tilt * x - capHeight * arc;
-        const lip = rimY(x);
-        const bottom = tilt * x + (11 - 7.1 * sideView) * arc;
-        for (let y = Math.ceil(top); y <= bottom; y++) {
-            const grain = noise(x, y);
-            const v = Math.min(1, Math.max(0, (y - top) / Math.max(.2, lip - top)));
+        const upperRows = Math.max(1, Math.round(11 * arc));
+        const lowerRows = Math.max(1, Math.round(5 * arc));
+        const rimX = u * radius;
+        const lip = rimY(rimX);
+        for (let row = 0; row <= upperRows + lowerRows; row++) {
+            const underside = row > upperRows;
+            const rim = row === upperRows || row === upperRows + lowerRows;
+            const grain = noise(col, row);
+            if (underside && !rim && (Math.abs(col) < 4.5 || grain < .27)) continue;
+            const v = Math.min(row / upperRows, 1);
+            const x = u * (22 - 6 * (pulse + (rimPulse - pulse) * v));
+            const top = tilt * x - capHeight * arc;
+            const bottom = tilt * x + (11 - 7.1 * sideView) * arc;
+            const y = underside ? lip + (bottom - lip) * (row - upperRows) / lowerRows : top + (lip - top) * v;
             const nz = arc * sqrt(1 - (1 - v) ** 2);
             const longitude = Math.atan2(u, nz * sideView + (y - tilt * x) / capHeight * (1 - sideView));
             const stripe = (.5 + .5 * cos(10 * longitude + yaw + v * .72)) ** 2;
-            const underside = y > lip;
-            const rim = Math.abs(y - lip) < .6 || bottom - y < .65;
-            // Gaps in the underside reveal the attachments of the central arm and filaments.
-            if (underside && !rim && (Math.abs(x) < 4.5 || grain < .27)) continue;
             const light = underside ? .18 + .22 * stripe : .22 + .48 * stripe + .15 * (1 - v);
-            const level = Math.min(5, Math.floor((light + .22 * grain) * 6));
-            const chars = glyphs[level];
+            const inkDensity = .5 + .5 * cos(10 * Math.atan2(u, nz) + v * .72);
+            const chars = glyphs[Math.min(5, Math.floor((.2 + .5 * inkDensity + .21 * grain) * 6))];
             const hue = underside ? mixHue(baseHue, 248, .65) : mixHue(baseHue, stripeHue, stripe);
             ctx.fillStyle = `hsl(${hue} ${rim ? 28 : 53}% ${rim ? 77 : 23 + 68 * light + 12 * grain}%)`;
             ctx.shadowColor = ctx.fillStyle;
@@ -150,11 +176,9 @@ function draw(time) {
 }
 
 function animate(now) {
-    if (lastFrame === undefined || now - lastFrame >= 32) {
-        if (lastFrame !== undefined) elapsed += (now - lastFrame) / 1000;
-        lastFrame = now;
-        draw(elapsed);
-    }
+    if (lastFrame !== undefined) elapsed += (now - lastFrame) / 1000;
+    lastFrame = now;
+    draw(elapsed);
     frame = requestAnimationFrame(animate);
 }
 
