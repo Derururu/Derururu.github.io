@@ -41,6 +41,30 @@ function bellRadius(time) {
     return 18.7 + 3 * cos(a) - .41 * sin(a) + .65 * sin(2 * a) + .32 * cos(2 * a);
 }
 
+// A smooth spline through passing points, with a different offset on each visit.
+const crossings = [[-.75,.32],[-.48,-.65],[.22,-.42],[.83,-.72],[.63,.14],
+    [-.12,.39],[-.60,.85],[-.72,.10],[.05,-.15],[.76,.63],[.06,.78]];
+
+function swim(course, seed, rx, ry) {
+    const segment = Math.floor(course), u = course - segment;
+    const points = [];
+    for (let k = -1; k <= 2; k++) {
+        const i = segment + k;
+        const [x, y] = crossings[((i % crossings.length) + crossings.length) % crossings.length];
+        points.push([rx * (x + .24 * (noise(i, seed) - .5)),
+            ry * (y + .24 * (noise(i, seed + 6) - .5))]);
+    }
+    const coords = [], velocity = [];
+    for (let axis = 0; axis < 2; axis++) {
+        const [a, b, c, d] = points.map(point => point[axis]);
+        const m = (c - a) / 2, n = (d - b) / 2;
+        const q = 3 * (c - b) - 2 * m - n, r = 2 * (b - c) + m + n;
+        coords.push(b + u * (m + u * (q + u * r)));
+        velocity.push(m + u * (2 * q + 3 * u * r));
+    }
+    return {x: coords[0], y: coords[1], heading: Math.atan2(velocity[0], -velocity[1])};
+}
+
 // Project the bell and its rim in the same square coordinate system as the trailing links.
 function pose(time) {
     const radius = bellRadius(time);
@@ -49,13 +73,12 @@ function pose(time) {
     const pitch = -1.38 + reveal * (1.69 + .07 * cos(.54 * time));
     const roll = -.17 * sin(.54 * (time - .36));
     const beat = PI * (time - 5.28);
-    const course = 1.45 + .19 * time - .028 * cos(beat);
-    const rx = .22 * width / cell, ry = .23 * height / cell;
-    const heading = Math.atan2(rx * cos(course), ry * sin(course));
+    const course = .38 + .19 * time - .028 * cos(beat);
+    const rx = .32 * width / cell, ry = .32 * height / cell;
+    const {x, y, heading} = swim(course, 1, rx, ry);
     return {
         radius, height: 21 + 1.9 * tuck, reveal, course, rx, ry,
-        x: rx * sin(course), y: ry * cos(course),
-        heading, cosHeading: cos(heading), sinHeading: sin(heading),
+        x, y, heading, cosHeading: cos(heading), sinHeading: sin(heading),
         cosPitch: cos(pitch), sinPitch: sin(pitch), cosRoll: cos(roll), sinRoll: sin(roll)
     };
 }
@@ -78,13 +101,19 @@ function advanceTentacles(time, view) {
         const body = pose(simulatedAt);
         const beat = PI * (simulatedAt - 5.28);
         // Sample the course behind the bell by distance, so the trailing tips round the same corner.
-        let course = body.course;
         const bends = [];
-        for (let j = 0; j < links; j++) {
-            const speed = Math.hypot(body.rx * cos(course), body.ry * sin(course));
-            const step = .82 * (50 / links) / speed;
-            bends.push(-step * body.rx * body.ry / (speed * speed));
-            course -= step;
+        let previous = body, distance = 0, lastHeading = body.heading;
+        for (let course = body.course - .05; bends.length < links; course -= .05) {
+            const point = swim(course, 1, body.rx, body.ry);
+            const segment = Math.hypot(point.x - previous.x, point.y - previous.y);
+            const turn = Math.atan2(sin(point.heading - previous.heading), cos(point.heading - previous.heading));
+            for (let next = (bends.length + 1) * 2; next <= distance + segment && bends.length < links; next += 2) {
+                const heading = previous.heading + turn * (next - distance) / segment;
+                bends.push(Math.atan2(sin(lastHeading - heading), cos(lastHeading - heading)));
+                lastHeading = heading;
+            }
+            previous = point;
+            distance += segment;
         }
         for (let b = 0; b < 6; b++) {
             const angle = tau * b / 6 + simulatedAt * .37;
@@ -129,6 +158,7 @@ function advanceTentacles(time, view) {
 }
 
 function draw(time) {
+    if (!width || !height) return;
     const stroke = Math.max(0, (time - 5.65) / strokeSeconds + 1);
     const cycle = Math.floor(stroke);
     const phase = stroke - cycle;
@@ -153,13 +183,23 @@ function draw(time) {
         const beat = time * (2.5 + scale) + phase;
         const t = phase + speed * (time - .16 * cos(beat));
         ctx.save();
-        ctx.translate(width * (x + rx * cos(t)), height * (y + ry * sin(t)));
-        ctx.rotate(Math.atan2(-width * rx * speed * sin(t), -height * ry * speed * cos(t)));
+        const path = swim(t, phase, width * rx, height * ry);
+        ctx.translate(width * x + path.x, height * y + path.y);
+        ctx.rotate(path.heading + (speed < 0 ? PI : 0));
         ctx.scale(1 + .10 * cos(beat), 1 - .06 * cos(beat));
         ctx.fillStyle = color;
         ctx.font = `${cell * scale * 1.55}px monospace`;
+        let tailX = 0, tailY = line * scale;
         miniature.forEach((part, i) => {
-            ctx.fillText(part, i > 3 ? cell * scale * .45 * sin(beat - i * .6) : 0, (i - 2) * line * scale);
+            if (i <= 3) {
+                ctx.fillText(part, 0, (i - 2) * line * scale);
+                return;
+            }
+            const earlier = swim(t - speed * (i - 3) * .35, phase, width * rx, height * ry);
+            const bend = path.heading - earlier.heading;
+            tailX += line * scale * sin(bend);
+            tailY += line * scale * cos(bend);
+            ctx.fillText(part, tailX + cell * scale * .45 * sin(beat - i * .6), tailY);
         });
         ctx.restore();
     }
