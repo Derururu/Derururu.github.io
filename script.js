@@ -2,13 +2,17 @@ const ocean = document.querySelector('#ocean');
 const ctx = ocean.getContext('2d');
 const motion = document.querySelector('#motion');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-const glyphs = ' .:;!i1l|trvxzco0OQ8B$#';
-const bell = document.createElement('canvas');
+const field = document.createElement('canvas');
+const ink = field.getContext('2d', { willReadFrequently: true });
+const mask = document.createElement('canvas');
+const letters = mask.getContext('2d');
+const atlas = document.createElement('canvas');
 const { sin, cos, sqrt, exp, PI } = Math;
-const strokeSeconds = 2.1;
-const hues = [178, 315, 38, 225, 135];
-let bellHue;
-let width, height, unit, pixelRatio;
+const tau = 2 * PI;
+const hues = [178, 272, 321, 43, 204];
+const glyphs = " .,:;!iltrcoax%0B#@";
+const strokeSeconds = 2.8;
+let width, height, cellWidth, cellHeight;
 let elapsed = 0;
 let lastFrame;
 let frame;
@@ -19,108 +23,159 @@ function noise(x, y) {
     return n - Math.floor(n);
 }
 
-function rim(x) {
-    return 1 - x * .15 + .95 * cos(x * .43);
-}
-
-function paintBell(hue) {
-    bellHue = hue;
-    const highlight = [`hsl(${hue} 82% 83%)`, `hsl(${hue} 72% 66%)`];
-    const shade = [`hsl(${hue + 85} 65% 81%)`, `hsl(${hue + 85} 32% 60%)`];
-    bell.width = Math.ceil(34 * unit * pixelRatio);
-    bell.height = Math.ceil(26 * unit * pixelRatio);
-    const ink = bell.getContext('2d');
-    ink.scale(unit * pixelRatio, unit * pixelRatio);
-    ink.translate(17, 18);
-    ink.font = '1px monospace';
-    ink.shadowBlur = 2 * pixelRatio;
-    for (let x = -25; x <= 25; x++) {
-        const top = -15.8 * sqrt(1 - (x / 25) ** 2) - x * .15;
-        const base = rim(x);
-        for (let y = Math.ceil(top); y <= base; y++) {
-            const grain = noise(x, y);
-            const ridge = sin(x * .52 + y * .3 + sin(y * .64));
-            const shine = exp(-((x + 10 + 5 * sin(y * .42)) ** 2) / 65);
-            const density = .27 + .38 * shine + .14 * ridge + .21 * grain;
-            const edge = y < top + 1 || y > base - 1;
-            const char = edge ? (y < top + 1 ? '._-/'[Math.floor(grain * 4)] : '_/|~'[Math.floor(grain * 4)])
-                : glyphs[Math.min(glyphs.length - 1, Math.floor(density * glyphs.length))];
-            ink.fillStyle = shine + .32 * ridge > .57 && y < base - 2
-                ? highlight[grain > .46 ? 0 : 1]
-                : shade[grain + density > 1.15 ? 0 : 1];
-            ink.shadowColor = ink.fillStyle;
-            ink.fillText(char, x * .64, y);
-        }
+// Paint a translucent, ribbed dome once. Every swimmer uses the same anatomy.
+const bell = document.createElement('canvas');
+bell.width = 320;
+bell.height = 164;
+const shell = bell.getContext('2d');
+const surface = shell.createImageData(bell.width, bell.height);
+for (let col = 0; col < bell.width; col++) {
+    const x = (col + .5) / 160 - 1;
+    const arc = sqrt(1 - x * x);
+    const scallop = .045 * cos(16 * Math.acos(x));
+    const top = -.9 * arc;
+    const lip = -.11 * arc + scallop;
+    const bottom = .15 * arc + scallop;
+    for (let row = 0; row < bell.height; row++) {
+        const y = row / 145 - .94;
+        if (y < top || y > bottom) continue;
+        const v = (y - top) / (lip - top);
+        const ny = -arc * (1 - Math.min(v, 1));
+        const nz = sqrt(Math.max(0, 1 - x * x - ny * ny));
+        const longitude = Math.atan2(x, nz);
+        const ribs = (.5 + .5 * cos(21 * longitude + 1.6 * v)) ** 6;
+        const rim = exp(-(((y - lip) / .032) ** 2));
+        const lowerRim = exp(-(((y - bottom) / .024) ** 2));
+        const glint = exp(-((x + .46) ** 2 / .13 + (v - .24) ** 2 / .08));
+        const folds = .5 + .5 * sin(v * 14 + 2 * sin(longitude * 9));
+        const veins = (.5 + .5 * cos(49 * longitude + 2 * sin(v * 9))) ** 13;
+        const light = y < lip ? .22 + .57 * ribs + .14 * veins + .34 * folds * glint : .14 + .28 * ribs;
+        const speck = .80 + .2 * noise(col, row);
+        const i = (row * bell.width + col) * 4;
+        surface.data[i] = (160 * light + 79 * glint + 190 * rim + 125 * lowerRim) * speck;
+        surface.data[i + 1] = (100 * light + 194 * glint + 150 * rim + 65 * lowerRim) * speck;
+        surface.data[i + 2] = (255 * light + 163 * glint + 189 * rim + 171 * lowerRim) * speck;
+        surface.data[i + 3] = 255;
     }
 }
+shell.putImageData(surface, 0, 0);
 
-const smallJelly = ['  .---.  ', " /     \\", '(       )', " '-~~~-' ", '  ) ( )  ', ' (  )  ( ', '  )  ( ) '];
+function swimmer(x, y, size, angle, stroke, opacity) {
+    const phase = stroke % 1;
+    const squeeze = phase < .26 ? phase / .26 : (1 - phase) / .74;
+    const pulse = .5 - .5 * cos(PI * squeeze);
+    const spread = 1 - .15 * pulse;
+    const lift = 1 + .12 * pulse;
+    const hue = hues[Math.floor(stroke) % hues.length];
+
+    ink.save();
+    ink.translate(x, y);
+    ink.rotate(angle);
+    ink.scale(size, size);
+    ink.globalAlpha = opacity;
+
+    // The leading edge of the color band advances from the rim to the tips.
+    const crest = phase / .86;
+    const filament = ink.createLinearGradient(0, -1, 0, 68);
+    const ribbon = ink.createLinearGradient(0, -1, 0, 68);
+    for (let step = 0; step <= 32; step++) {
+        const depth = step / 32;
+        const wave = exp(-(((depth - crest) / .09) ** 2));
+        const highlight = (1 - depth * .55);
+        filament.addColorStop(depth, `hsl(${wave > .12 ? hue : 258} 65% ${highlight * (35 + 56 * wave)}%)`);
+        ribbon.addColorStop(depth, `hsl(${wave > .12 ? hue : 267 + 37 * sin(depth * 5)} 65% ${highlight * (49 + 43 * wave)}%)`);
+    }
+
+    // Fine perimeter filaments and thicker, folded oral arms move at different depths.
+    for (let strand = 0; strand < 25; strand++) {
+        const broad = strand >= 20;
+        const longitude = strand * 2.4;
+        const root = (broad ? 7 : 25) * cos(longitude) * spread;
+        const length = broad ? 50 + 12 * sin(strand) : 46 + 23 * noise(strand, 2);
+        ink.strokeStyle = broad ? ribbon : filament;
+        ink.lineWidth = broad ? .6 : .32 + .24 * noise(strand, 4);
+        ink.beginPath();
+        const edge = [];
+        for (let row = 0; row <= length; row++) {
+            const depth = row / length;
+            const sway = depth * (9 * sin(row * .076 - stroke * .98 + .55 * sin(strand)) +
+                7 * sin(row * .044 - stroke * .64 + longitude));
+            const center = root * (1 - .27 * depth) + sway + depth * 7 * sin(stroke * .46 - 1);
+            const py = row + (broad ? 0 : 2.8 * sin(longitude));
+            const fold = broad ? (1 - depth * .9) * (1.5 + 1.35 * sin(.35 * row + longitude - stroke)) : 0;
+            if (row === 0) ink.moveTo(center - fold, py);
+            else ink.lineTo(center - fold, py);
+            if (broad) edge.push([center + fold, py]);
+        }
+        if (broad) {
+            for (let i = edge.length - 1; i >= 0; i--) ink.lineTo(...edge[i]);
+            ink.closePath();
+            ink.globalAlpha = opacity * .45;
+            ink.fillStyle = ribbon;
+            ink.fill();
+            ink.globalAlpha = opacity;
+        }
+        ink.stroke();
+    }
+    ink.scale(spread, lift);
+    ink.drawImage(bell, -27, -20.3, 54, 24.5);
+    if (phase < .22) {
+        ink.beginPath();
+        for (let col = -26; col <= 26; col++) {
+            const nx = col / 27;
+            const lip = -.11 * sqrt(1 - nx * nx) + .045 * cos(16 * Math.acos(nx));
+            const py = lip * 21.7;
+            if (col === -26) ink.moveTo(col, py);
+            else ink.lineTo(col, py);
+        }
+        ink.strokeStyle = `hsla(${hue} 85% 80% / ${sin(PI * phase / .22)})`;
+        ink.lineWidth = .65;
+        ink.stroke();
+    }
+    ink.restore();
+}
 
 function draw(time) {
-    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-    ctx.clearRect(0, 0, width, height);
-    ctx.font = '12px monospace';
-    for (let i = 0; i < width * height / 5200; i++) {
-        const n = noise(i, 2);
-        ctx.fillStyle = n > .85 ? '#554e68' : '#272936';
-        ctx.fillText(n > .85 ? '+' : '.', noise(i, 5) * width, noise(i, 7) * height);
-    }
-
-    const mobile = width <= 680;
-    ctx.font = Math.max(6, unit * .55) + 'px monospace';
-    for (const [x, y, color] of [[mobile ? .035 : .1, .24, '#74515f'], [.91, .61, '#385961']]) {
-        ctx.fillStyle = color;
-        smallJelly.forEach((row, i) => ctx.fillText(row, x * width, y * height + i * unit * .58 + sin(time * .19 + x) * 4));
-    }
-
+    const cols = field.width, rows = field.height;
+    ink.setTransform(1, 0, 0, 1, 0, 0);
+    ink.clearRect(0, 0, cols, rows);
+    // Model coordinates use square units; the final ASCII cells are taller than wide.
+    ink.scale(1 / cellWidth, 1 / cellHeight);
     const stroke = time / strokeSeconds;
     const phase = stroke % 1;
-    const hue = hues[Math.floor(stroke) % hues.length];
-    if (bellHue !== hue) paintBell(hue);
+    const travel = stroke + .12 * (1 - cos(tau * phase));
+    const portrait = width < height;
+    const size = Math.min(height / (portrait ? 90 : 79), width / (portrait ? 62 : 96));
+    const companions = [[.10, .26, .18, -.52], [.85, .19, .13, .32], [.88, .70, .20, -.35], [.14, .79, .11, .53]];
+    for (const [px, py, scale, lean] of companions) {
+        const drift = travel * (.55 + scale) + px * 13;
+        swimmer(width * (px + .035 * sin(drift)), height * (py + .045 * cos(drift)), size * scale,
+            lean + .24 * sin(drift), stroke * (.65 + scale) + px * 4, .48 + scale);
+    }
+    const path = travel * .51;
+    swimmer(width * ((portrait ? .51 : .58) + (portrait ? .065 : .115) * sin(path)),
+        height * ((portrait ? .37 : .34) + .055 * cos(path * 1.6)) - size * 2 * sin(phase * PI) ** 4,
+        size, (portrait ? .13 : .63) + .19 * cos(path), stroke, 1);
 
-    // Contract quickly, then reopen slowly as the jellyfish glides.
-    const squeeze = phase < .3 ? phase / .3 : (1 - phase) / .7;
-    const pulse = (1 - cos(PI * squeeze)) / 2;
-    const spread = 1 - .24 * pulse;
-    const lift = 1 + .14 * pulse;
-    const path = (stroke + .12 * (1 - cos(2 * PI * phase))) * .8;
-    ctx.translate(width * ((mobile ? .5 : .64) + (mobile ? .11 : .2) * sin(path)),
-        (height - unit * (mobile ? 13 : 0)) / 2 - unit * (11 + 2.2 * pulse + 2 * sin(path * 2)));
-    ctx.rotate((mobile ? .14 : .30) * cos(path));
-    ctx.scale(unit, unit);
-    ctx.font = '1px monospace';
-
-    // The outer filaments trail farther sideways as they get farther from the bell.
-    const filaments = [75, 59, 39].map(light => `hsl(${hue + 85} 27% ${light}%)`);
-    for (let strand = 0; strand < 26; strand++) {
-        const root = -24 + strand * 1.92;
-        const length = 24 + Math.round(22 * noise(strand, 3));
-        let previous = root * spread;
-        ctx.fillStyle = filaments[strand % 4 === 0 ? 0 : strand % 3 === 0 ? 1 : 2];
-        for (let row = 0; row < length; row++) {
-            const depth = row / length;
-            const wake = sin(2 * PI * (phase - depth * .8));
-            const x = root * (spread + depth * (1 - spread)) + 4 * depth * wake + depth * (6 + 8 * sin(strand * .32))
-                + depth * (7 * sin(row * .13 + time * .38 + strand * .13) + 3 * cos(row * .18 + strand));
-            ctx.fillText(x - previous > .27 ? '\\' : previous - x > .27 ? '/' : '|', Math.round(x) * .64, rim(root) * lift + row);
-            previous = x;
+    // Use luminance to pick a glyph, then transfer the field's color through the glyph mask.
+    const pixels = ink.getImageData(0, 0, cols, rows).data;
+    letters.clearRect(0, 0, mask.width, mask.height);
+    for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+            const i = (row * cols + col) * 4;
+            const value = Math.max(pixels[i], pixels[i + 1], pixels[i + 2]) * pixels[i + 3] / 255;
+            if (value < 8) continue;
+            const glyph = Math.ceil((glyphs.length - 1) * (value / 255) ** .68);
+            letters.drawImage(atlas, glyph * cellWidth, 0, cellWidth, cellHeight,
+                col * cellWidth, row * cellHeight, cellWidth, cellHeight);
         }
     }
-
-    // A folded central ribbon catches warmer light between the fine filaments.
-    const ribbon = [82, 64, 46].map(light => `hsl(${hue - 133} 62% ${light}%)`);
-    for (let row = 0; row < 36; row++) {
-        const depth = row / 36;
-        const center = 1 + depth * 10 + 2 * sin(row * .26 + time * .32);
-        const radius = (1 - depth * .78) * (4.3 + 1.6 * cos(row * .57));
-        for (let x = Math.ceil(center - radius); x <= center + radius; x++) {
-            const grain = noise(x, row);
-            ctx.fillStyle = ribbon[grain > .68 ? 0 : grain > .28 ? 1 : 2];
-            ctx.fillText('r|t0x/1+}'[Math.floor(grain * 9)], x * .64, row);
-        }
-    }
-    ctx.scale(spread, lift);
-    ctx.drawImage(bell, -17, -18, bell.width / (unit * pixelRatio), bell.height / (unit * pixelRatio));
+    ctx.clearRect(0, 0, ocean.width, ocean.height);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(field, 0, 0, cols * cellWidth, rows * cellHeight);
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.drawImage(mask, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
 }
 
 function animate(now) {
@@ -141,13 +196,22 @@ function updateMotion() {
 }
 
 function resize() {
-    width = ocean.clientWidth;
-    height = ocean.clientHeight;
-    pixelRatio = Math.min(devicePixelRatio, 2);
-    ocean.width = Math.round(width * pixelRatio);
-    ocean.height = Math.round(height * pixelRatio);
-    unit = Math.min(height / (width <= 680 ? 85 : 68), width / (width <= 680 ? 39 : 70));
-    bellHue = undefined;
+    const dpr = Math.min(devicePixelRatio, 2);
+    width = ocean.width = Math.round(ocean.clientWidth * dpr);
+    height = ocean.height = Math.round(ocean.clientHeight * dpr);
+    cellWidth = Math.max(2, Math.round(Math.min(ocean.clientWidth / 105, ocean.clientHeight / 150) * dpr));
+    cellHeight = Math.round(cellWidth * 1.55);
+    field.width = Math.ceil(width / cellWidth);
+    field.height = Math.ceil(height / cellHeight);
+    mask.width = width;
+    mask.height = height;
+    atlas.width = glyphs.length * cellWidth;
+    atlas.height = cellHeight;
+    const type = atlas.getContext('2d');
+    type.font = `600 ${cellHeight}px monospace`;
+    type.textBaseline = 'middle';
+    type.fillStyle = 'white';
+    for (let i = 0; i < glyphs.length; i++) type.fillText(glyphs[i], i * cellWidth, cellHeight / 2);
     draw(elapsed);
 }
 

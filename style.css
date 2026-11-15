@@ -22,23 +22,16 @@ main, footer { position: relative; }
 .hero {
     min-height: 100vh;
     min-height: 100svh;
-    display: flex;
-    align-items: center;
-    padding: 4rem 8vw;
     position: relative;
 }
-
-h1, h2 { font-family: 'Playfair Display', Georgia, serif; font-weight: 400; }
-h1 { font-size: clamp(3.3rem, 6.7vw, 7.5rem); line-height: 1.04; letter-spacing: -.055em; }
-h1 em { display: block; color: #d7d0ea; }
 
 #motion {
     position: absolute;
     bottom: 2rem;
     right: 5vw;
-    border: 1px solid #474351;
-    border-radius: 2rem;
-    background: #08080c;
+    border: 1px solid #393541;
+    border-radius: 3px;
+    background: #050508cc;
     color: #c6c1d0;
     font: .75rem ui-monospace, monospace;
     padding: .6rem .9rem;
@@ -53,7 +46,7 @@ h1 em { display: block; color: #d7d0ea; }
     background: linear-gradient(90deg, #000 12%, transparent 80%);
 }
 
-.content-headline { font-size: clamp(2rem, 4vw, 3rem); margin-bottom: 1rem; }
+.content-headline { font-family: 'Playfair Display', Georgia, serif; font-weight: 400; font-size: clamp(2rem, 4vw, 3rem); margin-bottom: 1rem; }
 .content-body { color: #cac6d0; font-size: 1.125rem; }
 footer { border-top: 1px solid #29272e; background: #000; }
 .footer-content, .social-links { display: flex; align-items: center; flex-wrap: wrap; gap: 1.5rem; }
@@ -62,9 +55,6 @@ footer { border-top: 1px solid #29272e; background: #000; }
 .social-link { text-underline-offset: .3em; }
 
 @media (max-width: 680px) {
-    .hero { align-items: flex-end; padding: 4.25rem 7vw; }
-    h1 { font-size: clamp(2.9rem, 10vw, 4.6rem); text-shadow: 0 2px 12px #000; }
-    h1 em { display: inline; }
     #motion { bottom: 1rem; }
     .content-section { background: #000d; }
 }
